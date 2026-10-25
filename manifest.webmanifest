@@ -1,8 +1,9 @@
 {
+  "id": "/second-brain-notes/",
   "name": "Second Brain",
   "short_name": "Second Brain",
   "description": "Eight notes for ideas, reminders, birthdays and a monthly reset.",
-  "start_url": "./",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#101513",
