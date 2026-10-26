@@ -157,6 +157,11 @@ form.add { display: flex; flex-direction: column; gap: 12px; }
 .section-head { display: flex; justify-content: space-between; margin-top: 8px; }
 .entry.finished { opacity: 0.7; }
 .entry .step { font-size: 15px; }
+.chipwrap { display: inline-flex; align-items: center; }
+.chip-x { background: none; border: 0; color: var(--muted); padding: 2px 6px; font-size: 18px; line-height: 1; }
+.chip-x:hover { color: var(--bad); }
+.addtag { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tag-input { width: 150px; padding: 5px 10px; }
 .jar { display: flex; flex-direction: column; gap: 10px; }
 .jar-note { margin: 4px 0 2px; padding: 0 0 0 12px; border-left: 3px solid var(--c); font-size: 18px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pill.plain { color: var(--muted); }
@@ -224,7 +229,7 @@ form.add { display: flex; flex-direction: column; gap: 12px; }
       date: "Birthday", dateTag: "Birthday", sort: "people" },
     { key: "made-me-smile", c: 6, name: "Made Me Smile", tagline: "Moments that deserve words more than a photo.",
       prompt: "A compliment, a funny conversation, a sunset, a kind act. For the heavy days.",
-      body: "What made you smile?", quick: true, jar: true },
+      tags: ["Compliment", "Funny", "Sunset", "Kindness"], body: "What made you smile?", quick: true, jar: true },
     { key: "monthly-reset", c: 7, name: "Monthly Reset", tagline: "A short checklist for the first of the month.",
       prompt: "A few minutes that make life feel less messy.",
       kind: "check", title: "Checklist item",
@@ -385,7 +390,7 @@ form.add { display: flex; flex-direction: column; gap: 12px; }
       var t = $("cap-text").value.trim();
       if (!t) return;
       var c = BYKEY[sel.value];
-      save({ id: uid(), cat: c.key, title: "", body: t, tag: c.tags ? c.tags[0] : "", date: "", done: false, createdAt: Date.now() });
+      save({ id: uid(), cat: c.key, title: "", body: t, tag: "", date: "", done: false, createdAt: Date.now() });
       $("cap-text").value = "";
       setStatus("Written down.");
     });
@@ -447,12 +452,42 @@ form.add { display: flex; flex-direction: column; gap: 12px; }
     );
     els.dform.replaceChildren(); els.dlist.replaceChildren();
     if (c.kind === "blank") { buildBlank(); return; }
-    formState.tag = c.tags ? c.tags[0] : "";
+    formState.tag = "";
     if (c.jar) els.dform.appendChild(buildJar(c));
     els.dform.appendChild(buildForm(c));
     var wrap = h("div", { class: "list", id: "list" });
     els.dlist.appendChild(wrap);
     renderList();
+  }
+
+  /* ---------- custom tags (stored as one hidden settings note) ---------- */
+  function settingsNote() {
+    return notes.find(function (n) { return n.id === "settings"; }) ||
+      { id: "settings", cat: "_settings", tagsMap: {}, createdAt: Date.now() };
+  }
+  function customTags(c) {
+    var s = notes.find(function (n) { return n.id === "settings"; });
+    return s && s.tagsMap && s.tagsMap[c.key] ? s.tagsMap[c.key] : [];
+  }
+  function allTags(c) {
+    var base = (c.tags || []).slice();
+    customTags(c).forEach(function (t) { if (base.indexOf(t) < 0) base.push(t); });
+    return base;
+  }
+  function addTag(c, t) {
+    if (allTags(c).some(function (x) { return x.toLowerCase() === t.toLowerCase(); })) return;
+    var s = Object.assign({}, settingsNote());
+    var m = Object.assign({}, s.tagsMap || {});
+    m[c.key] = (m[c.key] || []).concat([t]);
+    s.tagsMap = m;
+    save(s);
+  }
+  function removeTag(c, t) {
+    var s = Object.assign({}, settingsNote());
+    var m = Object.assign({}, s.tagsMap || {});
+    m[c.key] = (m[c.key] || []).filter(function (x) { return x !== t; });
+    s.tagsMap = m;
+    save(s);
   }
 
   var lastJar = null;
@@ -488,14 +523,53 @@ form.add { display: flex; flex-direction: column; gap: 12px; }
     var tagRow = null;
     if (c.tags) {
       var chips = h("div", { class: "chips", role: "group", "aria-label": "Type" });
-      c.tags.forEach(function (t) {
-        var b = h("button", { class: "chip", type: "button", "aria-pressed": String(t === formState.tag), text: t, onclick: function () {
-          formState.tag = t;
-          Array.prototype.forEach.call(chips.children, function (x) { x.setAttribute("aria-pressed", String(x.textContent === t)); });
-          if (dateWrap && c.dateTag) dateWrap.hidden = t !== c.dateTag;
-        } });
-        chips.appendChild(b);
-      });
+      var addBox = h("span", { class: "addtag" });
+      var showAddButton = function () {
+        addBox.replaceChildren(h("button", { class: "chip suggest", type: "button", text: "+ Add tag", onclick: showAddInput }));
+      };
+      var showAddInput = function () {
+        var inp = h("input", { class: "field tag-input", type: "text", maxlength: "24", placeholder: "New tag", "aria-label": "New tag name" });
+        var commit = function () {
+          var t = inp.value.trim();
+          if (!t) { showAddButton(); return; }
+          addTag(c, t);
+          var found = allTags(c).find(function (x) { return x.toLowerCase() === t.toLowerCase(); });
+          formState.tag = found || t;
+          renderChips();
+          if (dateWrap && c.dateTag) dateWrap.hidden = formState.tag !== c.dateTag;
+        };
+        inp.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") { e.preventDefault(); commit(); }
+          else if (e.key === "Escape") { showAddButton(); }
+        });
+        addBox.replaceChildren(inp,
+          h("button", { class: "btn small", type: "button", text: "Add", onclick: commit }),
+          h("button", { class: "link", type: "button", text: "Cancel", onclick: showAddButton }));
+        inp.focus();
+      };
+      var renderChips = function () {
+        chips.replaceChildren();
+        var custom = customTags(c);
+        allTags(c).forEach(function (t) {
+          var b = h("button", { class: "chip", type: "button", "aria-pressed": String(t === formState.tag), text: t, onclick: function () {
+            formState.tag = formState.tag === t ? "" : t;
+            renderChips();
+            if (dateWrap && c.dateTag) dateWrap.hidden = formState.tag !== c.dateTag;
+          } });
+          if (c.tags.indexOf(t) < 0 && custom.indexOf(t) >= 0) {
+            chips.appendChild(h("span", { class: "chipwrap" }, b,
+              h("button", { class: "chip-x", type: "button", "aria-label": "Remove tag " + t, text: "\u00d7", onclick: function () {
+                removeTag(c, t);
+                if (formState.tag === t) formState.tag = "";
+                renderChips();
+                if (dateWrap && c.dateTag) dateWrap.hidden = formState.tag !== c.dateTag;
+              } })));
+          } else chips.appendChild(b);
+        });
+        chips.appendChild(addBox);
+        showAddButton();
+      };
+      renderChips();
       tagRow = chips;
     }
     var sugg = null;
@@ -689,13 +763,23 @@ form.add { display: flex; flex-direction: column; gap: 12px; }
 
   function editEl(c, n) {
     var t = c.title ? h("input", { class: "field", type: "text", value: n.title || "", maxlength: "120", "aria-label": c.title }) : null;
-    var showDate = c.date && (!c.dateTag || n.tag === c.dateTag);
-    var d = showDate ? h("input", { class: "field", type: "date", value: n.date || "", "aria-label": c.date }) : null;
+    var d = c.date ? h("input", { class: "field", type: "date", value: n.date || "", "aria-label": c.date }) : null;
+    var dWrap = d ? h("div", { style: "flex:0 1 170px" }, d) : null;
+    if (dWrap && c.dateTag) dWrap.hidden = n.tag !== c.dateTag;
+    var tg = null;
+    if (c.tags) {
+      tg = h("select", { class: "field", "aria-label": "Type" }, h("option", { value: "", text: "No tag" }));
+      var opts = allTags(c);
+      if (n.tag && opts.indexOf(n.tag) < 0) opts.push(n.tag);
+      opts.forEach(function (t) { var o = h("option", { value: t, text: t }); if (t === n.tag) o.selected = true; tg.appendChild(o); });
+      tg.addEventListener("change", function () { if (dWrap && c.dateTag) dWrap.hidden = tg.value !== c.dateTag; });
+    }
     var b = c.body && c.kind !== "check" ? h("textarea", { class: "field", rows: "3", "aria-label": c.body }) : null;
     if (b) b.value = n.body || "";
     function finish() { editing = null; renderList(); }
     var form = h("form", { class: "entry", autocomplete: "off" },
-      (t || d) ? h("div", { class: "row" }, t ? h("div", { class: "grow" }, t) : null, d ? h("div", { style: "flex:0 1 170px" }, d) : null) : null,
+      tg ? h("div", { class: "row" }, h("div", { class: "grow" }, tg)) : null,
+      (t || d) ? h("div", { class: "row" }, t ? h("div", { class: "grow" }, t) : null, dWrap) : null,
       b,
       h("div", { class: "row" },
         h("button", { class: "btn small", type: "submit", text: "Save" }),
@@ -704,7 +788,8 @@ form.add { display: flex; flex-direction: column; gap: 12px; }
       e.preventDefault();
       var m = Object.assign({}, n);
       if (t) { if (!t.value.trim()) { t.focus(); return; } m.title = t.value.trim(); }
-      if (d) m.date = d.value;
+      if (tg) m.tag = tg.value;
+      if (d) m.date = (c.dateTag && m.tag !== c.dateTag) ? "" : d.value;
       if (b) m.body = b.value.trim();
       editing = null;
       save(m);
