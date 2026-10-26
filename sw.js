@@ -1,6 +1,6 @@
 // Offline cache for Second Brain. Bump VERSION (second-brain-v3, v4...) whenever you change any file.
 // Only caches starting with "second-brain-" are touched, so other apps on the same site are safe.
-const VERSION = "second-brain-v2";
+const VERSION = "second-brain-v3";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {
